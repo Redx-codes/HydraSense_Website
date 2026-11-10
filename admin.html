@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>HydraSense Admin</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+ label.f{display:block;font-size:12px;color:var(--mut);margin:8px 0 3px}
+ .f-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+ input.w{width:100%}
+ #pickMap{height:280px;border-radius:10px;border:1px solid var(--line);margin:8px 0}
+ pre{background:#08141f;border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;font-size:12px;white-space:pre-wrap;word-break:break-all}
+ .msg{font-size:13px;margin-top:8px}.msg.ok{color:#9fe3b6}.msg.err{color:#ff9f97}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Hydra<b>Sense</b> <span class="small">Admin</span></div>
+  <nav><a href="index.html" class="b" style="text-decoration:none;padding:7px 12px;border:1px solid var(--line);border-radius:8px">← Public website</a></nav>
+  <div class="hdr-r"><span id="who"></span><button class="b" id="signOut" style="display:none">Sign out</button></div>
+</header>
+<main>
+  <section id="loginCard" class="card" style="max-width:520px;margin:30px auto;text-align:center">
+    <h3>Admin sign-in</h3>
+    <p class="small">Only the team admin Google account can use this page. The public website needs no login.</p>
+    <button class="b pri" id="googleBtn">Sign in with Google</button>
+    <div class="msg err" id="loginMsg"></div>
+  </section>
+
+  <div id="adminArea" style="display:none">
+    <div class="grid g-auto">
+      <section class="card">
+        <h3>1 · Add a new device (ESP32)</h3>
+        <p class="small">Creates the device's own login so that only this device can send measurements.</p>
+        <div class="f-row">
+          <div><label class="f">Device ID</label><input class="w" id="devId" placeholder="HS-001"></div>
+          <div><label class="f">Name</label><input class="w" id="devName" placeholder="Prototype 1"></div>
+        </div>
+        <div style="margin-top:10px"><button class="b pri" id="addDev">Add device</button></div>
+        <div class="msg" id="devMsg"></div>
+        <pre id="devCreds" style="display:none"></pre>
+        <h3 style="margin-top:14px">Registered devices</h3>
+        <div id="devList" class="small">loading…</div>
+      </section>
+
+      <section class="card">
+        <h3>2 · Manual measurement (test mode)</h3>
+        <p class="small">Click the map (or use your location), type the readings, save. It appears on the public map as a node.</p>
+        <div id="pickMap"></div>
+        <div class="f-row">
+          <div><label class="f">Latitude</label><input class="w" id="mLat" type="number" step="any"></div>
+          <div><label class="f">Longitude</label><input class="w" id="mLon" type="number" step="any"></div>
+          <div><label class="f">Date &amp; time</label><input class="w" id="mTime" type="datetime-local"></div>
+        </div>
+        <div class="f-row">
+          <div><label class="f">pH</label><input class="w" id="mPh" type="number" step="0.01" value="7.4"></div>
+          <div><label class="f">TDS (ppm)</label><input class="w" id="mTds" type="number" step="1" value="250"></div>
+          <div><label class="f">Temperature (°C)</label><input class="w" id="mTemp" type="number" step="0.1" value="27"></div>
+          <div><label class="f">Turbidity (NTU)</label><input class="w" id="mTurb" type="number" step="0.1" value="3"></div>
+          <div><label class="f">Ammonia TAN (mg/L) optional</label><input class="w" id="mTan" type="number" step="0.01" placeholder="from test kit"></div>
+        </div>
+        <label style="display:block;margin-top:10px;font-size:13px"><input type="checkbox" id="mTest" checked> Mark as TEST data (hidden from public map unless “show test data” is ticked)</label>
+        <div style="margin-top:10px" class="row"><button class="b pri" id="saveM">Save measurement</button><button class="b" id="myLoc">Use my location</button></div>
+        <div class="msg" id="mMsg"></div>
+      </section>
+
+      <section class="card">
+        <h3>3 · Name your spots</h3>
+        <p class="small">Spots are created automatically from GPS (50 m). Give them readable names.</p>
+        <div id="spotList" class="small">loading…</div>
+      </section>
+
+      <section class="card">
+        <h3>4 · Settings &amp; test data</h3>
+        <label class="f">Hardness calibration factor (hardness ÷ TDS). Leave empty for the default rough estimate.</label>
+        <div class="row"><input id="hk" type="number" step="0.01" placeholder="e.g. 0.45"><button class="b" id="saveHk">Save</button></div>
+        <div class="msg" id="hkMsg"></div>
+        <hr style="border-color:var(--line)">
+        <div class="row"><button class="b" id="addDemo">Add sample test data</button><button class="b" id="delTest">Delete ALL test data</button></div>
+        <div class="msg" id="tMsg"></div>
+      </section>
+    </div>
+  </div>
+</main>
+<script type="module" src="js/admin.js"></script>
+</body>
+</html>

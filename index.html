@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HydraSense - Water Quality Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+</head>
+<body>
+<header>
+  <div class="logo">Hydra<b>Sense</b></div>
+  <nav id="nav">
+    <button data-view="map" class="on">Map</button>
+    <button data-view="history">History</button>
+    <button data-view="compare">Compare</button>
+    <button data-view="alerts">Alerts <span id="alertBadge"></span></button>
+    <button data-view="qr">QR</button>
+  </nav>
+  <div class="hdr-r">
+    <label title="Show measurements entered manually for testing"><input type="checkbox" id="showTest"> show test data</label>
+    <span><span class="dot" id="statusDot"></span><span id="statusText">connecting...</span></span>
+  </div>
+</header>
+
+<main>
+  <div id="banner"></div>
+
+  <section class="view on" id="view-map">
+    <div class="split">
+      <div class="mapwrap"><div id="map"></div><div class="legend" id="legend"></div></div>
+      <aside id="panel"></aside>
+    </div>
+  </section>
+
+  <section class="view" id="view-history">
+    <div class="row"><select id="histSpot"></select><a id="csvLink" class="b" href="#" style="text-decoration:none;padding:7px 10px;border:1px solid var(--line);border-radius:8px">Download CSV</a></div>
+    <div id="histBody"></div>
+  </section>
+
+  <section class="view" id="view-compare">
+    <div class="row" id="cmpPick"></div>
+    <div class="grid g-auto">
+      <div class="card"><h3>Water Quality Index by spot</h3><canvas id="cmpChart"></canvas></div>
+      <div class="card"><h3>Latest readings</h3><div id="cmpTable"></div></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-alerts">
+    <div class="card"><h3>Alerts</h3><div id="alertList"></div></div>
+  </section>
+
+  <section class="view" id="view-qr">
+    <div class="card" style="text-align:center">
+      <h3>Scan to open HydraSense</h3>
+      <div class="qrbox" id="qrSvg"></div>
+      <p id="qrUrl" class="small" style="word-break:break-all"></p>
+      <button class="b noprint" onclick="window.print()">Print this QR</button>
+      <p class="small noprint">One QR for everyone: it opens this website, where all measured spots are shown on the map.</p>
+    </div>
+  </section>
+
+  <p class="disc">HydraSense is a screening tool based on pH, TDS, turbidity and temperature. Values marked <span class="est">Estimated</span> are calculated from those readings, not measured directly. It is not a certified laboratory test.</p>
+</main>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
