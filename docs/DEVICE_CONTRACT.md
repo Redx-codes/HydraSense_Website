@@ -118,3 +118,25 @@ curl -s -X POST "https://virtualtpms-default-rtdb.asia-southeast1.firebasedataba
 ## 4. Spot (50 m) kaise banta hai
 
 Device ko spot ke baare mein kuch nahi bhejna. Website har measurement ki GPS location dekhkar 50 m ke andar wale records ko ek spot mein jod deti hai. Isi se history, "pichli baar se kitna badla" aur pollution alert banta hai.
+
+
+---
+
+## Version 2 additions (optional fields)
+
+Old devices keep working: none of these fields is required.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `ec` | number, 0-20000 | Conductivity in µS/cm, compensated to 25 °C. If present, the website computes TDS = factor × EC (factor set on the admin page, default 0.5). Still send `tds` as well. |
+| `orp` | number, -2000..2000 | ORP in mV (Pro). Shown only; not used in any score. |
+| `do` | number, 0-30 | Dissolved oxygen in mg/L (Pro, real sensor only). Never send a calculated value. |
+| `mode` | `"static"` or `"dynamic"` | `dynamic` = taken from the boat. |
+| `flags` bit 32 | | EC/TDS reading is at or above the probe range. The website then shows "> value, approximate". |
+
+`kit` (ammonia, nitrate, chlorine, hardness, iron, H2S vial) can be written only by the admin, from the admin page.
+
+The device version (Lite / Commercial / Pro) and "has boat base" are set per device on the admin page, not sent by the device.
+A Lite device is assumed to have a TDS probe that is reliable only up to about 1000 mg/L.
+
+Boat control uses separate nodes: see BOAT_CONTRACT.md.

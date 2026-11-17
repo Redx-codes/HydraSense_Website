@@ -162,3 +162,31 @@ Hardness hum TDS se roughly nikalte hain (`TDS x 0.45`). Agar aap ek baar test k
 ## Limits (free plan)
 
 Firebase Spark plan ke Realtime Database mein lagbhag 1 GB storage aur 10 GB/month download free hai. Ek measurement lagbhag 250 byte ki hai, to 1 GB mein kareeb 40 lakh measurements aa jayengi. Ek device roz 100 baar bhi naapein to varsho tak chalega. Website abhi sabse naye 2000 records padhti hai, isliye data badhne par bhi fast rehti hai.
+
+
+---
+
+## Upgrading from version 1 to version 2
+
+1. **Upload the new files** to the GitHub repository (replace all files, keep the folder structure). `js/firebase-config.js` already has your project details.
+2. **Publish the new rules.** Firebase console → Realtime Database → Rules → paste the whole of `database.rules.json` → Publish. Without this, boat control and kit saving are refused.
+3. **Admin page → device list:** choose the version (Lite / Commercial / Pro) for each device and tick **boat** for the device that sits on the boat base.
+4. Nothing changes in Authentication: Google sign-in is already on, and `redx-codes.github.io` is already an authorised domain.
+
+### Trying it without hardware
+
+Open `index.html?demo=1`. Switch **Dynamic** (top right) → **Boat**. A simulated boat obeys the controls, so you can test and record the screen. No real motors are involved.
+
+### How boat control works for people
+
+1. A visitor switches to Dynamic → Boat → **Sign in with Google** → **Request control**.
+2. You open the admin page → section 6 → **Allow** one person. Only that person's commands are accepted by the database.
+3. **Take control back** removes them. **EMERGENCY STOP** on the admin page works at any time.
+
+Static mode hides everything about the boat; the rest of the website is the same in both modes.
+
+### What is where
+
+- `js/hydrasense-logic.js`: the team's WQI and use-wise logic, unchanged. `docs/HydraSense_Logic.md` explains every rule and source.
+- `js/logic.js`: EC/TDS, kit values, mining risk index, advisor, fish list, confidence, alerts. `npm test` runs 15 checks.
+- `docs/BOAT_CONTRACT.md`: what the boat firmware must do. The firmware itself is not in this package yet.

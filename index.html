@@ -9,18 +9,21 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="js/hydrasense-logic.js"></script>
 </head>
 <body>
 <header>
-  <div class="logo">Hydra<b>Sense</b></div>
+  <div class="logo">Hydra<b>Sense</b><span class="tagline">Test karo, Samjho, Batao</span></div>
   <nav id="nav">
     <button data-view="map" class="on">Map</button>
     <button data-view="history">History</button>
     <button data-view="compare">Compare</button>
     <button data-view="alerts">Alerts <span id="alertBadge"></span></button>
+    <button data-view="boat" id="navBoat" style="display:none">Boat</button>
     <button data-view="qr">QR</button>
   </nav>
   <div class="hdr-r">
+    <span class="seg" id="modeSeg" title="Static = sensor box used by hand. Dynamic = sensor box on the boat."><button data-mode="static">Static</button><button data-mode="dynamic">Dynamic</button></span>
     <label title="Show measurements entered manually for testing"><input type="checkbox" id="showTest"> show test data</label>
     <span><span class="dot" id="statusDot"></span><span id="statusText">connecting...</span></span>
   </div>
@@ -53,6 +56,14 @@
     <div class="card"><h3>Alerts</h3><div id="alertList"></div></div>
   </section>
 
+  <section class="view" id="view-boat">
+    <div class="grid g-auto">
+      <div class="card" id="boatStatus"></div>
+      <div class="card" id="boatCtl"></div>
+    </div>
+    <p class="small">The boat's live position and path are drawn on the Map tab while Dynamic mode is on.</p>
+  </section>
+
   <section class="view" id="view-qr">
     <div class="card" style="text-align:center">
       <h3>Scan to open HydraSense</h3>
@@ -63,7 +74,7 @@
     </div>
   </section>
 
-  <p class="disc">HydraSense is a screening tool based on pH, TDS, turbidity and temperature. Values marked <span class="est">Estimated</span> are calculated from those readings, not measured directly. It is not a certified laboratory test.</p>
+  <p class="disc">HydraSense is a screening tool, not a certified laboratory test, and it does not purify water. Every value is labelled <span class="src src-m">Measured</span> (sensor), <span class="src src-e">Estimated</span> (calculated) or <span class="src src-k">Manual test</span> (test kit). The index and limits follow BIS IS 10500:2012; bacteria, heavy metals and pesticides are not measured by the sensors.</p>
 </main>
 
 <script type="module" src="js/app.js"></script>

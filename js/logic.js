@@ -1,67 +1,60 @@
-/* HydraSense logic - pure functions (no DOM, no Firebase). Runs in the browser and in node tests.
+/* HydraSense website logic v2 - pure functions (no DOM, no Firebase). Runs in the browser and in node tests.
+ *
+ * The WQI and use-wise classification come UNCHANGED from js/hydrasense-logic.js (the team's sourced
+ * logic file, window.HydraLogic). This module adds what the sensors/kit need around it:
+ *   EC -> TDS, probe-range handling, test-kit values, mining risk index, purification advisor,
+ *   fish list (with pit-lake cap), reading confidence, 50 m spots and alerts.
  *
  * A "measurement" looks like:
- *   { device, ts (unix seconds), lat, lon, ph, tds, temp, turb,
- *     flags?, batt?, stable?, calDays?, sats?, test?, tan? }
+ *   { device, ts, lat, lon, ph, tds, temp, turb, ec?, orp?, do?, mode?, flags?, batt?, stable?,
+ *     calDays?, sats?, test?, tan?, kit?: { tan, no3, cl, hard, fe, h2s } }
+ * Tags: [S..] = source in docs/SOURCES.md, [A] = HydraSense assumption, [P] = team plan (SIH 26040).
  */
+const H = () => {
+  const h = globalThis.HydraLogic;
+  if (h && !h.FISH.some(f => f.name === 'Pangasius'))
+    h.FISH.push({ name: 'Pangasius', temp: { optimum: [26, 31], tolerance: [20, 34] }, src: '[A] no single published range found; reported culture conditions 26-32 C' });
+  return h;
+};
 
 export const PARAMS = {
-  ph:   { label: 'pH',          unit: '',    ideal: [6.8, 7.8], ok: [6.5, 8.5], w: 0.25, dec: 2 },
-  tds:  { label: 'TDS',         unit: 'ppm', ideal: [0, 300],   ok: [0, 500],   w: 0.30, dec: 0 },
-  turb: { label: 'Turbidity',   unit: 'NTU', ideal: [0, 1],     ok: [0, 5],     w: 0.30, dec: 1 },
-  temp: { label: 'Temperature', unit: '°C',  ideal: [18, 30],   ok: [10, 35],   w: 0.15, dec: 1 },
+  ph:   { label: 'pH',          unit: '',     dec: 2 },
+  tds:  { label: 'TDS',         unit: 'mg/L', dec: 0 },
+  turb: { label: 'Turbidity',   unit: 'NTU',  dec: 1 },
+  temp: { label: 'Temperature', unit: '°C',   dec: 1 },
 };
+export const LEVEL_COLORS = { excellent: '#1a9850', good: '#91cf60', moderate: '#fdae61', poor: '#f46d43', very_poor: '#a50026' };
+export const levels = () => H().CONFIG.levels.map(l => ({ key: l.key, label: l.label, color: LEVEL_COLORS[l.key] }));
 
-const CURVES = {
-  ph:   [[4, 0], [5.5, 30], [6.5, 80], [6.8, 100], [7.8, 100], [8.5, 80], [9.5, 30], [11, 0]],
-  tds:  [[0, 100], [300, 100], [500, 80], [900, 50], [1200, 30], [2000, 0]],
-  turb: [[0, 100], [1, 100], [5, 80], [10, 60], [25, 30], [100, 0]],
-  temp: [[0, 40], [10, 70], [18, 100], [30, 100], [35, 70], [40, 30], [45, 0]],
+// Device versions [P]. tdsMax = range of the conductivity/TDS probe; above it the value is only approximate.
+export const MODELS = {
+  lite:       { name: 'Lite',       tdsMax: 1000 },
+  commercial: { name: 'Commercial', tdsMax: null },
+  pro:        { name: 'Pro',        tdsMax: null },
 };
+export const FLAG_RANGE = 32;            // flags bit 32 = EC/TDS above probe range (set by the device)
+export const DEFAULT_EC_FACTOR = 0.5;    // TDS (mg/L) = factor x EC (uS/cm) [A], adjustable in admin
 
-export const CATEGORIES = [
-  { min: 90, name: 'Excellent', color: '#1a9850' },
-  { min: 70, name: 'Good',      color: '#91cf60' },
-  { min: 50, name: 'Fair',      color: '#fdae61' },
-  { min: 25, name: 'Poor',      color: '#f46d43' },
-  { min: 0,  name: 'Very Poor', color: '#a50026' },
-];
-
-export function interp(x, pts) {
-  if (x <= pts[0][0]) return pts[0][1];
-  if (x >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
-  for (let i = 0; i < pts.length - 1; i++) {
-    const [x0, y0] = pts[i], [x1, y1] = pts[i + 1];
-    if (x >= x0 && x <= x1) return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
-  }
-  return 0;
+/* ------------------------------------------------------------------ effective reading */
+export function effective(m, opts = {}) {
+  const k = opts.ecFactor > 0 ? opts.ecFactor : DEFAULT_EC_FACTOR;
+  const hasEc = typeof m.ec === 'number' && isFinite(m.ec);
+  const tds = hasEc ? m.ec * k : m.tds;
+  const model = MODELS[opts.model] ? opts.model : 'lite';
+  const max = MODELS[model].tdsMax;
+  const tdsApprox = !!((m.flags | 0) & FLAG_RANGE) || (max != null && tds >= max);
+  return { ph: m.ph, tds, turbidity: m.turb, temp: m.temp, ec: hasEc ? m.ec : null, tdsFromEc: hasEc, tdsApprox, model };
 }
 
-export function subIndices(m) {
-  const out = {};
-  for (const k of Object.keys(PARAMS)) out[k] = Math.round(interp(m[k], CURVES[k]) * 10) / 10;
-  return out;
+export function kitOf(m, local) {
+  const k = {};
+  if (typeof m.tan === 'number') k.tan = m.tan;             // v1 field
+  for (const src of [m.kit, local]) if (src) for (const key of ['tan', 'no3', 'cl', 'hard', 'fe']) if (typeof src[key] === 'number' && isFinite(src[key]) && src[key] >= 0) k[key] = src[key];
+  for (const src of [m.kit, local]) if (src && (src.h2s === 'pos' || src.h2s === 'neg')) k.h2s = src.h2s;
+  return k;
 }
 
-export function wqi(m) {
-  const s = subIndices(m);
-  let t = 0;
-  for (const k of Object.keys(PARAMS)) t += PARAMS[k].w * s[k];
-  return Math.round(t * 10) / 10;
-}
-
-export function category(score) {
-  return CATEGORIES.find(c => score >= c.min) || CATEGORIES[CATEGORIES.length - 1];
-}
-
-export function paramStatus(k, v) {
-  const p = PARAMS[k];
-  if (v >= p.ideal[0] && v <= p.ideal[1]) return 'ideal';
-  if (v >= p.ok[0] && v <= p.ok[1]) return 'acceptable';
-  return 'out_of_range';
-}
-
-/* ------------------------------------------------------------------ estimates */
+/* ------------------------------------------------------------------ chemistry helpers */
 // Oxygen saturation of fresh water at sea level (mg/L), Benson & Krause / APHA Standard Methods equation.
 export function doSaturation(tC) {
   const T = tC + 273.15;
@@ -76,143 +69,125 @@ export function ammoniaFraction(ph, tC) {
   return 1 / (1 + Math.pow(10, pKa - ph));
 }
 
-const lvl3 = (pts, lo, hi) => (pts <= lo ? 'Low' : pts <= hi ? 'Medium' : 'High');
-
-export function estimates(m, opts = {}) {
-  const k = opts.hardnessK || 0.45;
-  const calibrated = !!opts.hardnessCalibrated;
-
-  // salinity
-  const sal = m.tds / 1000;
-  const salClass = sal < 0.5 ? 'Fresh' : sal < 3 ? 'Low-brackish' : 'Brackish';
-
-  // oxygen
-  const sat = doSaturation(m.temp);
-  const reasons = [];
-  let pts = 0;
-  if (m.temp > 33) { pts += 2; reasons.push('very warm water holds less oxygen'); }
-  else if (m.temp > 30) { pts += 1; reasons.push('warm water holds less oxygen'); }
-  if (m.turb > 50) { pts += 2; reasons.push('very turbid (plankton/organic load uses oxygen)'); }
-  else if (m.turb > 25) { pts += 1; reasons.push('turbid water (plankton/organic load)'); }
-  if (m.ph > 9) { pts += 2; reasons.push('very high pH suggests heavy algae (night-time oxygen crash risk)'); }
-  else if (m.ph > 8.6) { pts += 1; reasons.push('high pH suggests algae activity'); }
-  else if (m.ph < 6.5) { pts += 1; reasons.push('low pH (decay / organic acids)'); }
-
-  // ammonia
-  const frac = ammoniaFraction(m.ph, m.temp);
-  const fracLevel = frac < 0.02 ? 'Low' : frac < 0.10 ? 'Moderate' : 'High';
-  let op = 0;
-  const oreasons = [];
-  if (m.turb > 50) { op += 2; oreasons.push('very turbid'); } else if (m.turb > 25) { op += 1; oreasons.push('turbid'); }
-  if (m.tds > 600) { op += 1; oreasons.push('high dissolved solids'); }
-  if (m.temp > 30) { op += 1; oreasons.push('warm water speeds decay'); }
-  const nh3 = { fraction: frac, fractionPct: Math.round(frac * 1000) / 10, fractionLevel: fracLevel,
-                organicLoad: lvl3(op, 1, 3), organicReasons: oreasons };
-  if (typeof m.tan === 'number' && isFinite(m.tan)) {
-    nh3.tan = m.tan;
-    nh3.nh3mgL = Math.round(m.tan * frac * 1000) / 1000;
-    nh3.nh3Status = nh3.nh3mgL <= 0.02 ? 'ok' : nh3.nh3mgL <= 0.05 ? 'warning' : 'danger';
-  }
-
-  // hardness (rough, from TDS) - USGS classes in mg/L as CaCO3
-  const mid = m.tds * k;
-  const lo = calibrated ? mid * 0.85 : m.tds * 0.3;
-  const hi = calibrated ? mid * 1.15 : m.tds * 0.6;
-  const hClass = mid < 60 ? 'Soft' : mid <= 120 ? 'Moderately hard' : mid <= 180 ? 'Hard' : 'Very hard';
-
-  return {
-    salinity: { ppt: Math.round(sal * 100) / 100, cls: salClass, outOfSensorRange: m.tds >= 950 },
-    oxygen: { saturationMgL: Math.round(sat * 100) / 100, risk: lvl3(pts, 1, 3), points: pts, reasons },
-    ammonia: nh3,
-    hardness: { mid: Math.round(mid), low: Math.round(lo), high: Math.round(hi), cls: hClass, calibrated,
-                lowForFish: mid < 40 },
-  };
+/* ------------------------------------------------------------------ mining contamination risk index [P] */
+// Points: pH max 35, TDS max 25, turbidity max 15, iron (kit) max 15, pattern bonus +15 (pH < 6 and TDS > 1000).
+// Index = points / maximum possible x 100 (105 with iron, 90 without), capped at 100.
+// ORP is not used. This only signals SUSPECTED mining pollution; heavy metals are not measured.
+export function miningRisk(r, kit = {}) {
+  const parts = [];
+  const ph = r.ph >= 6.5 ? 0 : r.ph >= 5.5 ? 10 : r.ph >= 4.5 ? 20 : 35;
+  let tds = r.tds < 500 ? 0 : r.tds <= 1000 ? 8 : r.tds <= 2000 ? 15 : 25;
+  if (r.tdsApprox) tds = 15;                                   // probe out of range: we only know "above 1000"
+  const turb = r.turbidity < 5 ? 0 : r.turbidity <= 25 ? 6 : 15;
+  const hasIron = typeof kit.fe === 'number';
+  const iron = !hasIron ? 0 : kit.fe <= 0.3 ? 0 : kit.fe <= 1 ? 10 : 15;   // 0.3 mg/L = BIS limit [S3]; 10/15 split at 1 mg/L [A]
+  const bonus = r.ph < 6 && (r.tds > 1000 || r.tdsApprox) ? 15 : 0;
+  if (ph) parts.push(`acidic pH (+${ph})`);
+  if (tds) parts.push(`high dissolved solids (+${tds})`);
+  if (turb) parts.push(`turbid water (+${turb})`);
+  if (iron) parts.push(`iron above 0.3 mg/L (+${iron})`);
+  if (bonus) parts.push(`acid + high-salt pattern (+${bonus})`);
+  const points = ph + tds + turb + iron + bonus, max = hasIron ? 105 : 90;
+  const index = Math.min(100, Math.round(points / max * 100));
+  return { index, points, max, level: index <= 30 ? 'Low' : index <= 60 ? 'Moderate' : 'High', evidence: hasIron ? 'Moderate' : 'Indicative', hasIron, parts };
 }
 
-/* ------------------------------------------------------------------ fish (indicative ranges) */
-/* Ranges are indicative screening values gathered from FAO / ICAR / aquaculture literature
- * (see docs/SOURCES.md). opt = good, tol = tolerable (marginal). Turbidity in NTU is an
- * approximation of the Secchi-depth guidance (ICAR: 40-60 cm optimum visibility). */
-export const FISH = [
-  { id: 'rohu',   name: 'Rohu',        sci: 'Labeo rohita',
-    ph: { opt: [7, 8.5], tol: [6.5, 9] },   temp: { opt: [25, 32], tol: [20, 36] },
-    turb: { opt: 30, tol: 80 },  tds: { opt: 1000, tol: 2000 } },
-  { id: 'catla',  name: 'Catla',       sci: 'Catla catla',
-    ph: { opt: [7, 8.5], tol: [6.5, 9] },   temp: { opt: [25, 32], tol: [20, 36] },
-    turb: { opt: 30, tol: 80 },  tds: { opt: 1000, tol: 2000 } },
-  { id: 'carp',   name: 'Common carp', sci: 'Cyprinus carpio',
-    ph: { opt: [6.5, 8.5], tol: [5.5, 9.5] }, temp: { opt: [20, 30], tol: [10, 35] },
-    turb: { opt: 50, tol: 100 }, tds: { opt: 1000, tol: 2000 } },
-  { id: 'tilapia', name: 'Tilapia',    sci: 'Oreochromis niloticus',
-    ph: { opt: [6.5, 8.5], tol: [5.5, 9.5] }, temp: { opt: [25, 32], tol: [18, 35] },
-    turb: { opt: 50, tol: 100 }, tds: { opt: 1000, tol: 2000 } },
-  { id: 'pangasius', name: 'Pangasius', sci: 'Pangasianodon hypophthalmus',
-    ph: { opt: [6.5, 8.5], tol: [5.5, 9.5] }, temp: { opt: [26, 31], tol: [20, 34] },
-    turb: { opt: 50, tol: 100 }, tds: { opt: 1000, tol: 2000 } },
-];
-
-const rateRange = (v, r) => (v >= r.opt[0] && v <= r.opt[1] ? 'good' : v >= r.tol[0] && v <= r.tol[1] ? 'marginal' : 'bad');
-const rateMax = (v, r) => (v <= r.opt ? 'good' : v <= r.tol ? 'marginal' : 'bad');
-
-export function evaluateFish(m, est) {
-  const res = FISH.map(f => {
-    const rates = { ph: rateRange(m.ph, f.ph), temp: rateRange(m.temp, f.temp), turb: rateMax(m.turb, f.turb), tds: rateMax(m.tds, f.tds) };
-    const bad = Object.keys(rates).filter(k => rates[k] === 'bad');
-    const marg = Object.keys(rates).filter(k => rates[k] === 'marginal');
-    let level = bad.length ? 'Not suitable' : marg.length ? 'Marginal' : 'Suitable';
-    const reasons = [
-      ...bad.map(k => `${PARAMS[k].label} ${fmt(k, m[k])} is outside the tolerable range`),
-      ...marg.map(k => `${PARAMS[k].label} ${fmt(k, m[k])} is tolerable but not ideal`),
-    ];
-    const notes = [];
-    if (level !== 'Not suitable' && est) {
-      if (est.oxygen.risk === 'High') { notes.push('Estimated oxygen risk is high - check dissolved oxygen before stocking'); if (level === 'Suitable') level = 'Marginal'; }
-      if (est.ammonia.fractionLevel === 'High') { notes.push('At this pH/temperature most ammonia would be the toxic form - test ammonia'); if (level === 'Suitable') level = 'Marginal'; }
-      if (est.hardness.lowForFish) notes.push('Estimated hardness may be below 40 mg/L - consider liming');
+/* ------------------------------------------------------------------ fish list (pond + pit lake) */
+const FISH_MIN_DO = { 'Rohu': 5, 'Catla': 5, 'Common carp': 4, 'Nile tilapia': 3, 'Pangasius': 3 };   // mg/L [P]
+const RANK = ['suitable', 'marginal', 'not_suitable'];
+export function fishList(a, m, mining, pit) {
+  const hasDo = typeof m.do === 'number' && isFinite(m.do);
+  return a.uses.fish.species.map(s => {
+    let rank = RANK.indexOf(s.status); const reasons = s.reasons.slice();
+    if (hasDo) {
+      const min = FISH_MIN_DO[s.name] || 4;
+      if (m.do < min) { rank = 2; reasons.push(`Oxygen ${m.do} mg/L below the ${min} mg/L this fish needs`); }
+      else if (m.do < min + 1) { rank = Math.max(rank, 1); reasons.push(`Oxygen ${m.do} mg/L is only just enough`); }
     }
-    return { id: f.id, name: f.name, sci: f.sci, level, reasons, notes, rates };
+    let status = RANK[rank];
+    if (pit && mining.level === 'High' && rank < 2) { status = 'risky'; reasons.push('Mining risk is High: heavy metals can build up in fish. Lab-test before eating.'); }
+    return { name: s.name, status, reasons, oxygenVerified: hasDo };
   });
-  const order = { 'Suitable': 0, 'Marginal': 1, 'Not suitable': 2 };
-  return res.sort((a, b) => order[a.level] - order[b.level]);
 }
 
-export function fmt(k, v) {
-  const p = PARAMS[k];
-  return Number(v).toFixed(p.dec) + (p.unit ? ' ' + p.unit : '');
+/* ------------------------------------------------------------------ purification advisor [P] (advice only) */
+// type: 'drink' (RO / tap / hand pump), 'pond' (pond / lake), 'pit' (mine pit lake). Each line has English + Hindi.
+export function advisor(type, x) {
+  const out = [], r = x.r, k = x.kit, u = x.a.uses;
+  const add = (sev, en, hi) => out.push({ sev, en, hi });
+  if (type === 'drink') {
+    if (u.drinking.status === 'suitable') add('ok', 'pH, TDS and turbidity are within the BIS acceptable limits.', 'pH, TDS और गंदलापन BIS की स्वीकार्य सीमा में हैं।');
+    if (r.ph < 6.5) add('bad', 'Water is acidic (pH below 6.5). Do not drink untreated. It needs pH correction (neutralising filter); acidic water can also corrode pipes.', 'पानी अम्लीय है (pH 6.5 से कम)। बिना उपचार न पिएँ। pH सुधार (न्यूट्रलाइज़िंग फ़िल्टर) ज़रूरी है; अम्लीय पानी पाइप भी गला सकता है।');
+    if (r.ph > 8.5) add('bad', 'Water is alkaline (pH above 8.5). Not within the BIS range; it needs pH treatment before drinking.', 'पानी क्षारीय है (pH 8.5 से ज़्यादा)। BIS सीमा से बाहर; पीने से पहले pH उपचार चाहिए।');
+    if (r.tdsApprox) add('warn', 'TDS is above the range of this probe (about 1000 mg/L), so the real value may be higher. RO treatment is needed; confirm with a wider-range meter.', 'TDS इस प्रोब की सीमा (लगभग 1000 mg/L) से ऊपर है, असली मान ज़्यादा हो सकता है। RO उपचार चाहिए; बड़ी रेंज वाले मीटर से जाँचें।');
+    else if (r.tds > 2000) add('bad', 'TDS is above 2000 mg/L (BIS permissible limit). Not fit to drink without RO treatment.', 'TDS 2000 mg/L (BIS की अधिकतम सीमा) से ऊपर है। RO उपचार के बिना पीने लायक नहीं।');
+    else if (r.tds > 500) add('warn', 'TDS is above 500 mg/L. An RO purifier is recommended. If this is already RO water, the membrane or filters need changing.', 'TDS 500 mg/L से ऊपर है। RO प्यूरीफ़ायर की सलाह है। अगर यह पहले से RO का पानी है तो मेम्ब्रेन या फ़िल्टर बदलने का समय है।');
+    else if (r.tds < 50) add('info', 'TDS is very low (typical of RO water). Safe, but taste can be flat; many RO units have a TDS adjuster or mineral cartridge.', 'TDS बहुत कम है (RO पानी जैसा)। सुरक्षित है, पर स्वाद फीका लग सकता है; कई RO में TDS एडजस्टर या मिनरल कार्ट्रिज होता है।');
+    if (r.turbidity > 5) add('bad', 'Water is cloudy (above 5 NTU). Let it settle and filter it (sediment filter or clean cloth), then disinfect by boiling or chlorine.', 'पानी गंदला है (5 NTU से ऊपर)। पहले थिरने दें और छानें (सेडिमेंट फ़िल्टर या साफ़ कपड़ा), फिर उबालकर या क्लोरीन से कीटाणुरहित करें।');
+    else if (r.turbidity > 1) add('warn', 'Slight cloudiness (above 1 NTU). Service or replace the sediment filter.', 'हल्का गंदलापन (1 NTU से ऊपर)। सेडिमेंट फ़िल्टर की सर्विस करें या बदलें।');
+    if (k.h2s === 'pos') add('bad', 'H2S vial turned black: bacterial contamination is likely. Boil or chlorinate the water and get a lab test.', 'H2S वायल काली हो गई: बैक्टीरिया होने की संभावना है। पानी उबालें या क्लोरीन डालें और लैब टेस्ट कराएँ।');
+    if (k.no3 > 45) add('bad', 'Nitrate is above 45 mg/L (BIS limit). Boiling does not remove nitrate; use RO. Do not give this water to infants.', 'नाइट्रेट 45 mg/L (BIS सीमा) से ऊपर है। उबालने से नाइट्रेट नहीं हटता; RO इस्तेमाल करें। शिशुओं को यह पानी न दें।');
+    if (k.fe > 0.3) add('warn', 'Iron is above 0.3 mg/L (BIS limit): metallic taste and stains. Use an iron-removal filter.', 'आयरन 0.3 mg/L (BIS सीमा) से ऊपर है: धातु जैसा स्वाद और दाग। आयरन रिमूवल फ़िल्टर लगाएँ।');
+    if (k.hard > 600) add('bad', 'Hardness is above 600 mg/L (BIS permissible limit). A softener or RO is needed.', 'कठोरता 600 mg/L (BIS की अधिकतम सीमा) से ऊपर है। सॉफ़्टनर या RO चाहिए।');
+    else if (k.hard > 200) add('warn', 'Water is hard (above 200 mg/L). It causes scale; a softener helps.', 'पानी कठोर है (200 mg/L से ऊपर)। इससे पपड़ी जमती है; सॉफ़्टनर मदद करेगा।');
+    if (k.tan > 0.5) add('bad', 'Ammonia is above 0.5 mg/L (BIS limit). This often points to sewage or waste entering the source. Get a lab test.', 'अमोनिया 0.5 mg/L (BIS सीमा) से ऊपर है। यह अक्सर सीवेज या कचरा मिलने का संकेत है। लैब टेस्ट कराएँ।');
+    if (typeof k.cl === 'number') {
+      if (k.cl > 1) add('warn', 'Free chlorine is above 1 mg/L. Let the water stand in an open vessel, or use a carbon filter.', 'फ़्री क्लोरीन 1 mg/L से ऊपर है। पानी को खुले बर्तन में रखें या कार्बन फ़िल्टर इस्तेमाल करें।');
+      else if (k.cl < 0.2) add('info', 'Free chlorine is below 0.2 mg/L. If this is piped supply that should be chlorinated, disinfection may be weak.', 'फ़्री क्लोरीन 0.2 mg/L से कम है। अगर यह नल की सप्लाई है जिसमें क्लोरीन होना चाहिए, तो कीटाणुनाशन कमज़ोर हो सकता है।');
+    }
+    if (k.h2s !== 'pos') add('info', k.h2s === 'neg' ? 'H2S vial was negative. This is a screening test only, not a full bacteria test.' : 'Bacteria are NOT measured by the sensors. Use an H2S vial (result in 24-48 hours) or a lab test.', k.h2s === 'neg' ? 'H2S वायल नेगेटिव रही। यह सिर्फ़ स्क्रीनिंग टेस्ट है, पूरा बैक्टीरिया टेस्ट नहीं।' : 'सेंसर बैक्टीरिया नहीं नापते। H2S वायल (नतीजा 24-48 घंटे में) या लैब टेस्ट कराएँ।');
+  } else {
+    add('bad', 'Pond, lake and pit water is not fit to drink directly, whatever the readings show.', 'तालाब, झील या खदान के गड्ढे का पानी सीधे पीने लायक नहीं है, रीडिंग कुछ भी हो।');
+    const f = u.fish.status, ir = u.irrigation.status;
+    if (r.ph < 6.5) add('warn', 'Water is acidic for fish. Agricultural lime is the usual correction; raise pH slowly.', 'मछली के लिए पानी अम्लीय है। आम तौर पर कृषि चूना डाला जाता है; pH धीरे-धीरे बढ़ाएँ।');
+    if (r.ph > 9) add('warn', 'pH is high for fish (above 9). Ammonia becomes more toxic at high pH; reduce feeding and exchange water.', 'मछली के लिए pH ज़्यादा है (9 से ऊपर)। ऊँचे pH पर अमोनिया ज़्यादा ज़हरीला होता है; दाना कम करें और पानी बदलें।');
+    add(f === 'suitable' ? 'ok' : f === 'marginal' ? 'warn' : 'bad', f === 'suitable' ? 'Fish culture: pH, temperature and TDS are in range for at least one species (see the fish list).' : f === 'marginal' ? 'Fish culture: possible only after correcting the points listed in the fish list.' : 'Fish culture: not suitable at these readings.', f === 'suitable' ? 'मछली पालन: कम से कम एक प्रजाति के लिए pH, तापमान और TDS ठीक हैं (मछली सूची देखें)।' : f === 'marginal' ? 'मछली पालन: मछली सूची में लिखी कमियाँ सुधारने के बाद ही संभव।' : 'मछली पालन: इन रीडिंग पर उपयुक्त नहीं।');
+    add(ir === 'suitable' ? 'ok' : ir === 'use_with_care' ? 'warn' : 'bad', ir === 'suitable' ? 'Irrigation: suitable (low salinity, pH in range).' : ir === 'use_with_care' ? 'Irrigation: use with care. Salinity is moderate; choose salt-tolerant crops.' : 'Irrigation: not recommended (too salty or pH out of range).', ir === 'suitable' ? 'सिंचाई: उपयुक्त (कम खारापन, pH ठीक)।' : ir === 'use_with_care' ? 'सिंचाई: सावधानी से। खारापन मध्यम है; नमक सहने वाली फ़सलें चुनें।' : 'सिंचाई: सलाह नहीं (बहुत खारा या pH सीमा से बाहर)।');
+    if (r.turbidity > 25) add('info', 'High turbidity: the sensor cannot tell green plankton (good) from clay (bad). Check with a Secchi disk; about 30 cm is the target.', 'गंदलापन ज़्यादा है: सेंसर हरे प्लवक (अच्छा) और मिट्टी (ख़राब) में फ़र्क़ नहीं कर सकता। सेकी डिस्क से जाँचें; लगभग 30 सेमी ठीक है।');
+    if (x.ammonia && x.ammonia.status === 'danger') add('bad', `Toxic ammonia is about ${x.ammonia.nh3} mg/L. Stop feeding, exchange water and aerate.`, `ज़हरीला अमोनिया लगभग ${x.ammonia.nh3} mg/L है। दाना बंद करें, पानी बदलें और हवा दें।`);
+    if (!x.oxygen.measured) add('info', 'Dissolved oxygen is not verified. Most pond fish kills are caused by low oxygen or ammonia, so test them before stocking.', 'घुली ऑक्सीजन की जाँच नहीं हुई। तालाब में मछलियाँ ज़्यादातर कम ऑक्सीजन या अमोनिया से मरती हैं, इसलिए मछली डालने से पहले जाँचें।');
+    if (type === 'pit') {
+      const mr = x.mining;
+      add(mr.level === 'High' ? 'bad' : mr.level === 'Moderate' ? 'warn' : 'ok', mr.level === 'High' ? `Mining risk index ${mr.index}/100 (High): mining pollution is suspected. Get a lab test for heavy metals before any use, and do not eat fish from this water until then.` : mr.level === 'Moderate' ? `Mining risk index ${mr.index}/100 (Moderate): some signs of mining influence. A lab test is advised before fish farming.` : `Mining risk index ${mr.index}/100 (Low): no strong sign of mining pollution in these readings. Heavy metals are still not measured.`, mr.level === 'High' ? `माइनिंग रिस्क इंडेक्स ${mr.index}/100 (ज़्यादा): खनन प्रदूषण का शक है। किसी भी इस्तेमाल से पहले भारी धातुओं का लैब टेस्ट कराएँ, तब तक इस पानी की मछली न खाएँ।` : mr.level === 'Moderate' ? `माइनिंग रिस्क इंडेक्स ${mr.index}/100 (मध्यम): खनन के असर के कुछ संकेत हैं। मछली पालन से पहले लैब टेस्ट की सलाह है।` : `माइनिंग रिस्क इंडेक्स ${mr.index}/100 (कम): इन रीडिंग में खनन प्रदूषण का बड़ा संकेत नहीं। फिर भी भारी धातुएँ नापी नहीं गई हैं।`);
+      if (!mr.hasIron) add('info', 'Add an iron test-kit value to make the mining index more reliable.', 'माइनिंग इंडेक्स को ज़्यादा भरोसेमंद बनाने के लिए आयरन किट का मान डालें।');
+    }
+  }
+  return out;
 }
 
-/* ------------------------------------------------------------------ use classes A-E */
-export const CLASS_INFO = {
-  A: { title: 'Class A - Drinking-water screen', short: 'Drinking (screen)' },
-  B: { title: 'Class B - Irrigation / agriculture', short: 'Irrigation' },
-  C: { title: 'Class C - Fish culture', short: 'Fish culture' },
-  D: { title: 'Class D - Industrial / cooling only', short: 'Industrial' },
-  E: { title: 'Class E - Polluted / drain-like', short: 'Polluted' },
+const BEST_USE = {
+  'Drinking': ['Drinking (physical readings only)', 'पीने योग्य (सिर्फ़ भौतिक रीडिंग के आधार पर)'],
+  'Drinking only if no alternate source (treat first)': ['Drinking only if no better source is available, after treatment', 'पीने के लिए तभी जब दूसरा बेहतर स्रोत न हो, उपचार के बाद'],
+  'Fish culture': ['Fish culture', 'मछली पालन'],
+  'Irrigation': ['Irrigation', 'सिंचाई'],
+  'Industrial cooling / controlled disposal': ['Industrial cooling / controlled disposal', 'औद्योगिक कूलिंग / नियंत्रित निपटान'],
+  'Limited use - fish culture only after correcting pH / temperature / TDS': ['Limited use. Fish culture only after correcting pH / temperature / TDS', 'सीमित उपयोग। pH / तापमान / TDS सुधारने के बाद ही मछली पालन'],
+  'Drain / waste water - treat before any use': ['Waste water. Treat before any use', 'गंदा पानी। किसी भी उपयोग से पहले उपचार करें'],
 };
 
-export function useClasses(m, score, fish) {
-  const A = m.ph >= 6.5 && m.ph <= 8.5 && m.tds <= 500 && m.turb <= 5;
-  const B = m.ph >= 6.0 && m.ph <= 8.5 && m.tds <= 2000;
-  const C = fish.some(f => f.level === 'Suitable' || f.level === 'Marginal');
-  const D = score >= 25 && m.ph >= 5.5 && m.ph <= 9.5 && m.tds <= 2000 && m.turb <= 100 && m.temp <= 45;
-  const notes = {
-    A: A ? (m.turb > 1 ? 'Passes basic screen (turbidity above the 1 NTU WHO preference). Lab test for germs/metals still needed.' : 'Passes the 4-parameter screen. Germs, nitrate, metals need a lab test.') : 'Fails the screen (pH 6.5-8.5, TDS up to 500 ppm, turbidity up to 5 NTU).',
-    B: B ? (m.tds < 450 ? 'No salinity restriction for most crops.' : 'Slight-to-moderate salinity restriction for sensitive crops.') : 'pH or salinity unsuitable for irrigation.',
-    C: C ? 'At least one local species fits (see fish list).' : 'No listed species fits these readings.',
-    D: D ? 'Usable for cooling/washing/process water after checks.' : 'Too contaminated even for industrial reuse.',
-  };
-  const passed = { A, B, C, D };
-  let overall;
-  if (A) overall = 'A';
-  else if (B || C) overall = B && C ? 'BC' : B ? 'B' : 'C';
-  else if (D) overall = 'D';
-  else overall = 'E';
-  return { passed, notes, overall };
+/* ------------------------------------------------------------------ full assessment */
+export function quick(m, opts = {}) {
+  const r = effective(m, opts), a = H().analyze(r);
+  if (!a.valid) return { valid: false, wqi: null, label: 'Invalid reading', key: 'invalid', color: '#777', bestUse: ['-', '-'] };
+  return { valid: true, wqi: a.wqi.wqi, score: a.wqi.score, key: a.wqi.level, label: a.wqi.label, color: LEVEL_COLORS[a.wqi.level], bestUse: BEST_USE[a.bestUse] || [a.bestUse, a.bestUse], r, a };
 }
 
-export function overallLabel(code) {
-  if (code === 'BC') return 'Class B/C - Irrigation and fish culture';
-  return CLASS_INFO[code].title;
+export function assess(m, opts = {}) {
+  const q = quick(m, opts);
+  if (!q.valid) return { valid: false, confidence: confidence(m) };
+  const { r, a } = q, kit = kitOf(m, opts.kitLocal);
+  const hasDo = typeof m.do === 'number' && isFinite(m.do);
+  const oxygen = { measured: hasDo, value: hasDo ? m.do : null, saturation: Math.round(doSaturation(m.temp) * 10) / 10 };
+  const ppt = Math.round(r.tds / 100) / 10;
+  const salinity = { ppt, cls: ppt < 0.5 ? 'Fresh' : ppt < 3 ? 'Slightly brackish' : 'Brackish' };
+  let ammonia = null;
+  if (typeof kit.tan === 'number') {
+    const f = ammoniaFraction(m.ph, m.temp), nh3 = Math.round(kit.tan * f * 1000) / 1000;
+    ammonia = { tan: kit.tan, fractionPct: Math.round(f * 1000) / 10, nh3, status: nh3 <= 0.02 ? 'ok' : nh3 <= 0.05 ? 'warning' : 'danger' };
+  }
+  const mining = miningRisk(r, kit);
+  const base = { r, a, kit, oxygen, salinity, ammonia, mining };
+  return { valid: true, ...q, ...base, fish: pit => fishList(a, m, mining, pit), advice: type => advisor(type, base), confidence: confidence(m) };
 }
 
 /* ------------------------------------------------------------------ confidence */
@@ -222,6 +197,7 @@ export function confidence(m) {
   const f = m.flags | 0;
   const names = { 1: 'pH probe unstable/disconnected', 2: 'TDS probe unstable/disconnected', 4: 'Turbidity probe unstable/disconnected', 8: 'Temperature sensor missing' };
   for (const bit of [1, 2, 4, 8]) if (f & bit) { c -= 25; notes.push(names[bit]); }
+  if (f & 32) notes.push('EC/TDS above probe range');
   if (f & 16) { c -= 10; notes.push('Weak GPS fix (location may be old)'); }
   if (m.stable === false) { c -= 20; notes.push('Readings had not fully settled'); }
   if (typeof m.calDays === 'number') {
@@ -233,20 +209,6 @@ export function confidence(m) {
   if (m.temp < -1 || m.temp > 60 || m.ph < 0 || m.ph > 14 || m.tds < 0 || m.turb < 0) { c -= 30; notes.push('Reading outside physical range'); }
   c = Math.max(0, c);
   return { score: c, level: c >= 80 ? 'High' : c >= 50 ? 'Medium' : 'Low', notes };
-}
-
-/* ------------------------------------------------------------------ full assessment */
-export function assess(m, opts = {}) {
-  const score = wqi(m);
-  const cat = category(score);
-  const est = estimates(m, opts);
-  const fish = evaluateFish(m, est);
-  const classes = useClasses(m, score, fish);
-  return {
-    wqi: score, category: cat, sub: subIndices(m),
-    status: Object.fromEntries(Object.keys(PARAMS).map(k => [k, paramStatus(k, m[k])])),
-    est, fish, classes, confidence: confidence(m),
-  };
 }
 
 /* ------------------------------------------------------------------ spots (50 m) */
@@ -285,40 +247,41 @@ export function clusterSpots(measurements, radiusM = 50) {
 const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
 const sd = a => { const mu = mean(a); return Math.sqrt(mean(a.map(x => (x - mu) ** 2))); };
 
+// opts may carry optsFor(m) -> per-measurement options (device model, EC factor)
 export function alertsForMeasurement(m, history, opts = {}) {
-  const out = [];
+  const out = [], of = x => (opts.optsFor ? opts.optsFor(x) : opts);
   const add = (severity, kind, msg) => out.push({ ts: m.ts, severity, kind, msg });
   const conf = confidence(m);
   if (conf.level === 'Low') { add('info', 'confidence', 'Low-confidence reading - alerts suppressed (' + conf.notes.join(', ') + ')'); return out; }
-  if (m.ph < 6 || m.ph > 9) add('critical', 'ph', `pH ${m.ph.toFixed(2)} is dangerous`);
+  const x = assess(m, of(m));
+  if (!x.valid) { add('info', 'invalid', 'Reading could not be analysed'); return out; }
+  const r = x.r;
+  if (m.ph < 6 || m.ph > 9) add('critical', 'ph', `pH ${m.ph.toFixed(2)} is far outside 6.5-8.5`);
   else if (m.ph < 6.5 || m.ph > 8.5) add('warning', 'ph', `pH ${m.ph.toFixed(2)} is outside 6.5-8.5`);
-  if (m.tds > 1000) add('critical', 'tds', `TDS ${Math.round(m.tds)} ppm is very high`);
-  else if (m.tds > 500) add('warning', 'tds', `TDS ${Math.round(m.tds)} ppm is above 500`);
+  if (r.tdsApprox) add('warning', 'tds', 'TDS is above the probe range (about 1000 mg/L) - real value may be higher');
+  else if (r.tds > 2000) add('critical', 'tds', `TDS ${Math.round(r.tds)} mg/L is above the BIS permissible limit (2000)`);
+  else if (r.tds > 500) add('warning', 'tds', `TDS ${Math.round(r.tds)} mg/L is above the BIS acceptable limit (500)`);
   if (m.turb > 25) add('critical', 'turb', `Turbidity ${m.turb.toFixed(1)} NTU is very high`);
   else if (m.turb > 5) add('warning', 'turb', `Turbidity ${m.turb.toFixed(1)} NTU is above 5`);
-  if (m.temp > 35 || m.temp < 5) add('warning', 'temp', `Temperature ${m.temp.toFixed(1)} °C is outside the safe band`);
-  const score = wqi(m);
-  if (score < 25) add('critical', 'wqi', `WQI ${score} - Very Poor`);
-  else if (score < 50) add('warning', 'wqi', `WQI ${score} - Poor`);
-  // change against this spot's own history
+  if (m.temp > 35 || m.temp < 5) add('warning', 'temp', `Temperature ${m.temp.toFixed(1)} °C is unusual for surface water`);
+  if (x.mining.level === 'High') add('critical', 'mining', `Mining risk index ${x.mining.index}/100 - mining pollution suspected, lab test advised`);
+  if (x.kit.h2s === 'pos') add('critical', 'bacteria', 'H2S vial positive - bacterial contamination likely');
+  if (x.ammonia && x.ammonia.status === 'danger') add('critical', 'ammonia', `Ammonia (toxic form) about ${x.ammonia.nh3} mg/L`);
+  if (x.kit.no3 > 45) add('warning', 'nitrate', `Nitrate ${x.kit.no3} mg/L is above the BIS limit (45)`);
+  // change against this spot's own history (WQI: lower is better)
   const prev = history.filter(h => h.ts < m.ts);
   if (prev.length >= 3) {
-    const last = prev.slice(-5).map(wqi);
-    const drop = mean(last) - score;
-    if (drop >= 15) add('critical', 'drop', `WQI fell ${Math.round(drop)} points compared with earlier visits - possible pollution event`);
+    const last = prev.slice(-5).map(p => quick(p, of(p)).wqi).filter(v => v != null);
+    if (last.length >= 3) { const rise = x.wqi - mean(last); if (rise >= 50) add('critical', 'drop', `WQI got worse by ${Math.round(rise)} points compared with earlier visits - possible pollution event`); }
   }
   if (prev.length >= 5) {
     const floors = { ph: 0.1, tds: 10, temp: 0.5, turb: 0.5 };
     for (const k of Object.keys(PARAMS)) {
-      const h = prev.slice(-30).map(x => x[k]);
-      const s = Math.max(sd(h), floors[k]);
-      const z = (m[k] - mean(h)) / s;
+      const h = prev.slice(-30).map(p => p[k]);
+      const z = (m[k] - mean(h)) / Math.max(sd(h), floors[k]);
       if (Math.abs(z) > 3) add('warning', 'anomaly', `${PARAMS[k].label} is unusual for this spot (z=${z > 0 ? '+' : ''}${z.toFixed(1)})`);
     }
   }
-  const est = estimates(m, opts);
-  if (est.oxygen.risk === 'High') add('warning', 'oxygen', 'Estimated oxygen risk is high');
-  if (est.ammonia.nh3Status === 'danger') add('critical', 'ammonia', `Ammonia (toxic form) about ${est.ammonia.nh3mgL} mg/L`);
   return out;
 }
 

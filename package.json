@@ -1,6 +1,6 @@
 {
   "name": "hydrasense-web",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": { "test": "node tests/logic.test.js" }

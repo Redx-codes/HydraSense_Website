@@ -14,27 +14,163 @@
       },
       "measurements": {
         ".read": true,
-        ".indexOn": ["ts"],
+        ".indexOn": [
+          "ts"
+        ],
         "$mid": {
           ".write": "(auth != null && auth.token.email == 'reevupaul@gmail.com' && auth.token.email_verified == true) || (auth != null && !data.exists() && newData.exists() && root.child('hydrasense_v2/devices').child(newData.child('device').val()).child('uid').val() === auth.uid)",
           ".validate": "newData.hasChildren(['device', 'ts', 'lat', 'lon', 'ph', 'tds', 'temp', 'turb']) && (!newData.child('test').exists() || newData.child('test').val() === false || (auth != null && auth.token.email == 'reevupaul@gmail.com'))",
-          "device": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 32" },
-          "ts":     { ".validate": "newData.isNumber() && newData.val() > 1700000000 && newData.val() <= now / 1000 + 600" },
-          "lat":    { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
-          "lon":    { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
-          "ph":     { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 14" },
-          "tds":    { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 5000" },
-          "temp":   { ".validate": "newData.isNumber() && newData.val() >= -5 && newData.val() <= 70" },
-          "turb":   { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 4000" },
-          "flags":  { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 255" },
-          "batt":   { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6" },
-          "stable": { ".validate": "newData.isBoolean()" },
-          "calDays": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3650" },
-          "sats":   { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 60" },
-          "test":   { ".validate": "newData.isBoolean()" },
-          "tan":    { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100" },
-          "note":   { ".validate": "newData.isString() && newData.val().length <= 80" },
-          "$other": { ".validate": false }
+          "device": {
+            ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 32"
+          },
+          "ts": {
+            ".validate": "newData.isNumber() && newData.val() > 1700000000 && newData.val() <= now / 1000 + 600"
+          },
+          "lat": {
+            ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90"
+          },
+          "lon": {
+            ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180"
+          },
+          "ph": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 14"
+          },
+          "tds": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 5000"
+          },
+          "temp": {
+            ".validate": "newData.isNumber() && newData.val() >= -5 && newData.val() <= 70"
+          },
+          "turb": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 4000"
+          },
+          "flags": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 255"
+          },
+          "batt": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6"
+          },
+          "stable": {
+            ".validate": "newData.isBoolean()"
+          },
+          "calDays": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 3650"
+          },
+          "sats": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 60"
+          },
+          "test": {
+            ".validate": "newData.isBoolean()"
+          },
+          "tan": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
+          },
+          "note": {
+            ".validate": "newData.isString() && newData.val().length <= 80"
+          },
+          "ec": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 20000"
+          },
+          "orp": {
+            ".validate": "newData.isNumber() && newData.val() >= -2000 && newData.val() <= 2000"
+          },
+          "do": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 30"
+          },
+          "mode": {
+            ".validate": "newData.val() === 'static' || newData.val() === 'dynamic'"
+          },
+          "kit": {
+            ".validate": "auth != null && auth.token.email == 'reevupaul@gmail.com'",
+            "tan": {
+              ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
+            },
+            "no3": {
+              ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000"
+            },
+            "cl": {
+              ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 20"
+            },
+            "hard": {
+              ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 5000"
+            },
+            "fe": {
+              ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100"
+            },
+            "h2s": {
+              ".validate": "newData.val() === 'pos' || newData.val() === 'neg'"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      },
+      "boats": {
+        "$bid": {
+          "status": {
+            ".read": true,
+            ".write": "auth != null && root.child('hydrasense_v2/devices').child($bid).child('uid').val() === auth.uid"
+          },
+          "cmd": {
+            ".read": true,
+            ".write": "(auth != null && auth.token.email == 'reevupaul@gmail.com' && auth.token.email_verified == true) || (auth != null && root.child('hydrasense_v2/boats').child($bid).child('driver').child('uid').val() === auth.uid)",
+            ".validate": "newData.hasChildren(['l', 'r', 'arm', 'seq', 'by']) && newData.child('by').val() === auth.uid",
+            "l": {
+              ".validate": "newData.isNumber() && newData.val() >= -100 && newData.val() <= 100"
+            },
+            "r": {
+              ".validate": "newData.isNumber() && newData.val() >= -100 && newData.val() <= 100"
+            },
+            "arm": {
+              ".validate": "newData.isBoolean()"
+            },
+            "estop": {
+              ".validate": "newData.isBoolean()"
+            },
+            "seq": {
+              ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000001"
+            },
+            "m": {
+              ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000000000"
+            },
+            "by": {
+              ".validate": "newData.isString()"
+            },
+            "t": {
+              ".validate": "newData.isNumber()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
+          "driver": {
+            ".read": true,
+            ".write": "auth != null && auth.token.email == 'reevupaul@gmail.com' && auth.token.email_verified == true"
+          },
+          "requests": {
+            ".read": "auth != null && auth.token.email == 'reevupaul@gmail.com' && auth.token.email_verified == true",
+            "$uid": {
+              ".read": "auth != null && auth.uid === $uid",
+              ".write": "(auth != null && auth.uid === $uid) || (auth != null && auth.token.email == 'reevupaul@gmail.com' && auth.token.email_verified == true)",
+              ".validate": "newData.hasChildren(['name', 't'])",
+              "name": {
+                ".validate": "newData.isString() && newData.val().length <= 60"
+              },
+              "email": {
+                ".validate": "newData.isString() && newData.val().length <= 80"
+              },
+              "t": {
+                ".validate": "newData.isNumber()"
+              },
+              "$other": {
+                ".validate": false
+              }
+            }
+          }
         }
       }
     }
